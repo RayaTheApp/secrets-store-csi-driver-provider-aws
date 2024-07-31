@@ -3,10 +3,11 @@ package provider
 import (
 	"encoding/json"
 	"fmt"
+
 	"github.com/jmespath/go-jmespath"
 )
 
-// Contains the actual contents of the secret fetched from either Secrete Manager
+// Contains the actual contents of the secret fetched from either Secret Manager
 // or SSM Parameter Store along with the original descriptor.
 type SecretValue struct {
 	Value      []byte
@@ -14,26 +15,44 @@ type SecretValue struct {
 }
 
 func (p *SecretValue) String() string { return "<REDACTED>" } // Do not log secrets
-//parse out and return specified key value pairs from the secret
+
+// parse out and return specified key value pairs from the secret
 func (p *SecretValue) getJsonSecrets() (s []*SecretValue, e error) {
-
 	jsonValues := make([]*SecretValue, 0)
-	if len(p.Descriptor.JMESPath) == 0 {
-		return jsonValues, nil
-	}
 
-	var data interface{}
+	var data map[string]interface{}
 	err := json.Unmarshal(p.Value, &data)
 	if err != nil {
 		return nil, fmt.Errorf("Invalid JSON used with jmesPath in secret: %s.", p.Descriptor.ObjectName)
-
 	}
 
-	//fetch all specified key value pairs`
+	// If SyncAllKeys is enabled, extract all key-value pairs
+	if p.Descriptor.SyncAllKeys {
+		for key, value := range data {
+			// Ensure the value is a string before processing
+			valueAsString, _ := value.(string)
+
+			// Create a descriptor for each key-value pair
+			descriptor := SecretDescriptor{
+				ObjectName:  p.Descriptor.ObjectName,
+				ObjectAlias: key,
+				ObjectType:  p.Descriptor.ObjectType,
+				translate:   p.Descriptor.translate,
+				mountDir:    p.Descriptor.mountDir,
+			}
+
+			secretValue := SecretValue{
+				Value:      []byte(valueAsString),
+				Descriptor: descriptor,
+			}
+			jsonValues = append(jsonValues, &secretValue)
+		}
+		return jsonValues, nil
+	}
+
+	// Process specific JMESPath entries if SyncAllKeys is not enabled
 	for _, jmesPathEntry := range p.Descriptor.JMESPath {
-
 		jsonSecret, err := jmespath.Search(jmesPathEntry.Path, data)
-
 		if err != nil {
 			return nil, fmt.Errorf("Invalid JMES Path: %s.", jmesPathEntry.Path)
 		}
@@ -44,7 +63,6 @@ func (p *SecretValue) getJsonSecrets() (s []*SecretValue, e error) {
 		}
 
 		jsonSecretAsString, isString := jsonSecret.(string)
-
 		if !isString {
 			return nil, fmt.Errorf("Invalid JMES search result type for path:%s. Only string is allowed.", jmesPathEntry.Path)
 		}
@@ -56,7 +74,6 @@ func (p *SecretValue) getJsonSecrets() (s []*SecretValue, e error) {
 			Descriptor: descriptor,
 		}
 		jsonValues = append(jsonValues, &secretValue)
-
 	}
 	return jsonValues, nil
 }
