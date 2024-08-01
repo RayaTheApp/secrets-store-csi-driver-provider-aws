@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/jmespath/go-jmespath"
+	"k8s.io/klog/v2"
 )
 
 // Contains the actual contents of the secret fetched from either Secret Manager
@@ -28,6 +29,8 @@ func (p *SecretValue) getJsonSecrets() (s []*SecretValue, e error) {
 
 	// If SyncAllKeys is enabled, extract all key-value pairs
 	if p.Descriptor.SyncAllKeys {
+		klog.Infof("SyncAllKeys is enabled for secret: %s", p.Descriptor.ObjectName)
+
 		for key, value := range data {
 			// Ensure the value is a string before processing
 			valueAsString, _ := value.(string)
